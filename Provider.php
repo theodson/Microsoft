@@ -13,6 +13,12 @@ class Provider extends AbstractProvider
     public const IDENTIFIER = 'MICROSOFT';
 
     /**
+     * The tenant id associated with personal Microsoft accounts (services like Xbox, Teams for Life, or Outlook).
+     * Note: only reported in JWT ID_TOKENs and not in call's to Graph Organization endpoint.
+     */
+    public const MS_AZURE_CONSUMER_TENANT_ID = '9188040d-6c67-4c5b-b112-36a304b66dad';
+
+    /**
      * Default field list to request from Microsoft.
      *
      * @see https://docs.microsoft.com/en-us/graph/permissions-reference#user-permissions
