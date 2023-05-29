@@ -43,6 +43,30 @@ class Provider extends AbstractProvider
     protected $scopeSeparator = ' ';
 
     /**
+     * @param $jwt
+     * @return mixed
+     */
+    public function decodeJWT($jwt)
+    {
+        // A warning note from https://github.com/firebase/php-jwt
+        // Decoding the JWT headers without verifying the JWT first is NOT recommended.
+        // This is because without verifying the JWT, the header values could have been tampered with.
+        // Any value pulled from an unverified header should be treated as if it could be any string sent in from an attacker.
+
+        // This Provider's use of claims is limited to the `tid`, it is a trivial "is public user" check to prevent calls
+        // to the Graph organization endpoint for 'public/consumer' users. Any tampering doesn't impact our security,
+        // so we choose to ignore the JWT security concern.
+
+        // Improvement—look at implementing https://github.com/firebase/php-jwt...
+        // Similar check is already implemented in AzureADB2C at
+        // https://github.com/SocialiteProviders/Providers/blob/master/src/AzureADB2C/Provider.php#L168
+
+        $claims = json_decode(base64_decode(str_replace('_', '/', str_replace('-', '+', $jwt))));
+
+        return $claims;
+    }
+
+    /**
      * {@inheritdoc}
      */
     protected function getAuthUrl($state)
@@ -64,6 +88,35 @@ class Provider extends AbstractProvider
     protected function getTokenUrl()
     {
         return sprintf('https://login.microsoftonline.com/%s/oauth2/v2.0/token', $this->config['tenant'] ?: 'common');
+    }
+
+    /**
+     * When Scope includes 'openid' or 'profile' the ID_TOKEN is made available to us.
+     * https://learn.microsoft.com/en-us/azure/active-directory/develop/id-tokens
+     *
+     * @param $body
+     * @return array|\ArrayAccess|mixed
+     */
+    protected function parseIdToken($body)
+    {
+        return Arr::get($body, 'id_token');
+    }
+
+    /**
+     * Check the ID_TOKEN for tenant details via simple JWT decode.
+     * https://learn.microsoft.com/en-us/azure/active-directory/develop/optional-claims
+     * @return bool
+     */
+    public function isConsumerTenant()
+    {
+        if ($idToken = $this->parseIdToken($this->credentialsResponseBody)) {
+            list($headersB64, $payloadB64, $sig) = explode('.', $idToken);
+            $claims = $this->decodeJWT($payloadB64);
+
+            return ($claims->tid ?? '') === self::MS_AZURE_CONSUMER_TENANT_ID;
+        }
+
+        return false;
     }
 
     /**
@@ -106,7 +159,10 @@ class Provider extends AbstractProvider
             }
         }
 
-        if ($this->getConfig('tenant', 'common') === 'common' && $this->getConfig('include_tenant_info', false)) {
+        $formattedResponse['tenant'] = null;
+
+        if ($this->getConfig('include_tenant_info', false) && !$this->isConsumerTenant()) {
+
             $responseTenant = $this->getHttpClient()->get(
                 'https://graph.microsoft.com/v1.0/organization',
                 [
